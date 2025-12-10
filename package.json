@@ -17,6 +17,7 @@
     "@mui/material": "^7.3.6",
     "framer-motion": "^12.23.26",
     "next": "16.0.8",
+    "openai": "^6.10.0",
     "react": "19.2.1",
     "react-dom": "19.2.1"
   },
