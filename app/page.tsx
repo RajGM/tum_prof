@@ -1,6 +1,7 @@
+// app/page.tsx
 'use client';
 
-import { useState, KeyboardEvent, useMemo } from 'react';
+import { useState, KeyboardEvent } from 'react';
 import {
   Box,
   Card,
@@ -31,7 +32,7 @@ import {
 } from '@mui/icons-material';
 import { useColorMode } from './theme-provider';
 
-/* ---------------- Types ---------------- */
+// -------------------- Types --------------------
 
 type ApiRole = 'user' | 'assistant';
 type ApiMessage = { role: ApiRole; content: string };
@@ -51,7 +52,7 @@ type Message = {
   matches?: Match[];
 };
 
-/* ---------------- UI helpers ---------------- */
+// -------------------- UI helpers --------------------
 
 const scrollbarStyles = {
   '&::-webkit-scrollbar': { width: '8px' },
@@ -64,7 +65,7 @@ const scrollbarStyles = {
 
 const MAX_MESSAGES_TO_SEND = 12;
 
-/* ---------------- Page ---------------- */
+// -------------------- Page --------------------
 
 export default function ChatPage() {
   const theme = useTheme();
@@ -76,22 +77,12 @@ export default function ChatPage() {
       id: 'welcome',
       role: 'assistant',
       content:
-        "Hello! I'm your TUM professor assistant.\n\nTry asking:\n• Who works on quantum computing?\n• Which professor focuses on AI for medical imaging?\n• Who is working on robotics?",
+        "Hello! I'm your TUM professor assistant. I can help you discover researchers based on their expertise.\n\nTry asking:\n• Who works on quantum computing and cryptography?\n• Which professor focuses on AI for medical imaging?\n• Who is working on robotics for surgery?",
     },
   ]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
-
-  // Build strongly-typed history for API (exclude welcome)
-  const apiHistory = useMemo<ApiMessage[]>(() => {
-    return messages
-      .filter((m) => m.id !== 'welcome')
-      .map<ApiMessage>((m) => ({
-        role: m.role,
-        content: m.content,
-      }));
-  }, [messages]);
 
   async function sendMessage() {
     const question = input.trim();
@@ -107,13 +98,19 @@ export default function ChatPage() {
       content: question,
     };
 
-    setMessages((prev) => [...prev, userMsg]);
+    // Build "nextMessages" deterministically so we can build payload from it (no TS widening)
+    const nextMessages: Message[] = [...messages, userMsg];
+    setMessages(nextMessages);
 
     try {
-      const payloadMessages: ApiMessage[] = [
-        ...apiHistory,
-        { role: 'user', content: question },
-      ].slice(-MAX_MESSAGES_TO_SEND);
+      // Build payload from nextMessages so it includes the new user message
+      const payloadMessages: ApiMessage[] = nextMessages
+        .filter((m) => m.id !== 'welcome')
+        .slice(-MAX_MESSAGES_TO_SEND)
+        .map((m) => ({
+          role: (m.role === 'user' ? 'user' : 'assistant') as ApiRole,
+          content: m.content,
+        }));
 
       const res = await fetch('/api/prof-query', {
         method: 'POST',
@@ -132,12 +129,13 @@ export default function ChatPage() {
         id: `assistant-${Date.now()}`,
         role: 'assistant',
         content: data.answer || 'No answer returned.',
-        matches: data.matches || [],
+        matches: Array.isArray(data.matches) ? data.matches : [],
       };
 
       setMessages((prev) => [...prev, assistantMsg]);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Something went wrong');
+      const errorMessage = err instanceof Error ? err.message : 'Something went wrong';
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -151,24 +149,75 @@ export default function ChatPage() {
   }
 
   return (
-    <Box sx={{ minHeight: '100vh', display: 'flex', justifyContent: 'center', p: 2 }}>
-      <Card sx={{ width: '100%', maxWidth: 900, height: '90vh', display: 'flex', flexDirection: 'column' }}>
+    <Box
+      sx={{
+        minHeight: '100vh',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        bgcolor: 'background.default',
+        p: { xs: 2, md: 3 },
+      }}
+    >
+      <Card
+        sx={{
+          width: '100%',
+          maxWidth: 900,
+          height: { xs: '90vh', md: '85vh' },
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
+          boxShadow: (theme) =>
+            `0 0 2px 0 ${alpha(theme.palette.grey[500], 0.2)}, 0 12px 24px -4px ${alpha(
+              theme.palette.grey[500],
+              0.12
+            )}`,
+        }}
+      >
         {/* Header */}
-        <Box sx={{ px: 3, py: 2, display: 'flex', justifyContent: 'space-between' }}>
+        <Box
+          sx={{
+            px: 3,
+            py: 2.5,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            borderBottom: '1px dashed',
+            borderColor: 'divider',
+          }}
+        >
           <Stack direction="row" spacing={2} alignItems="center">
-            <Avatar sx={{ bgcolor: 'primary.main' }}>
+            <Avatar
+              sx={{
+                width: 48,
+                height: 48,
+                bgcolor: 'primary.main',
+                boxShadow: (theme) => `0 8px 16px 0 ${alpha(theme.palette.primary.main, 0.24)}`,
+              }}
+            >
               <SchoolIcon />
             </Avatar>
-            <Typography variant="h6" fontWeight={700}>
-              TUM Professor Assistant
-            </Typography>
+            <Box>
+              <Typography variant="h6" fontWeight={700}>
+                TUM Professor Assistant
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                Ask questions about TUM professors and their research
+              </Typography>
+            </Box>
           </Stack>
-          <IconButton onClick={toggleColorMode}>
+          <IconButton
+            onClick={toggleColorMode}
+            sx={{
+              bgcolor: alpha(theme.palette.grey[500], 0.08),
+              '&:hover': { bgcolor: alpha(theme.palette.grey[500], 0.16) },
+            }}
+          >
             {mode === 'light' ? <DarkModeIcon /> : <LightModeIcon />}
           </IconButton>
         </Box>
 
-        {/* Messages */}
+        {/* Messages Area */}
         <Box sx={{ flex: 1, overflowY: 'auto', p: 3, ...scrollbarStyles }}>
           <Stack spacing={3}>
             {messages.map((m) => (
@@ -179,37 +228,80 @@ export default function ChatPage() {
                 setExpandedId={setExpandedId}
               />
             ))}
-            {loading && <Typography color="text.secondary">Thinking…</Typography>}
+            {loading && (
+              <Stack direction="row" spacing={2} alignItems="flex-start">
+                <Avatar sx={{ width: 36, height: 36, bgcolor: 'primary.main' }}>
+                  <SchoolIcon sx={{ fontSize: 20 }} />
+                </Avatar>
+                <Box
+                  sx={{
+                    bgcolor: alpha(theme.palette.grey[500], 0.08),
+                    borderRadius: 2,
+                    px: 2.5,
+                    py: 1.5,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 1.5,
+                  }}
+                >
+                  <CircularProgress size={16} thickness={5} />
+                  <Typography variant="body2" color="text.secondary">
+                    Thinking...
+                  </Typography>
+                </Box>
+              </Stack>
+            )}
           </Stack>
         </Box>
 
-        {/* Error */}
+        {/* Error Message */}
         {error && (
-          <Box sx={{ px: 3 }}>
-            <Typography color="error.main">{error}</Typography>
+          <Box sx={{ px: 3, pb: 1 }}>
+            <Typography
+              variant="caption"
+              sx={{
+                color: 'error.main',
+                display: 'block',
+                bgcolor: alpha(theme.palette.error.main, 0.08),
+                p: 1.5,
+                borderRadius: 1,
+              }}
+            >
+              {error}
+            </Typography>
           </Box>
         )}
 
-        {/* Input */}
-        <Box sx={{ p: 3 }}>
+        {/* Input Area */}
+        <Box sx={{ p: 3, pt: 2, borderTop: '1px dashed', borderColor: 'divider' }}>
           <TextField
             fullWidth
+            placeholder='Ask something like: "Who works on quantum computing?"'
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Ask about a TUM professor…"
+            autoFocus
             InputProps={{
               endAdornment: (
                 <InputAdornment position="end">
                   <IconButton
                     onClick={sendMessage}
                     disabled={!input.trim() || loading}
-                    sx={{ bgcolor: 'primary.main', color: 'primary.contrastText' }}
+                    sx={{
+                      bgcolor: 'primary.main',
+                      color: 'primary.contrastText',
+                      '&:hover': { bgcolor: 'primary.dark' },
+                      '&.Mui-disabled': {
+                        bgcolor: alpha(theme.palette.grey[500], 0.24),
+                        color: alpha(theme.palette.grey[500], 0.8),
+                      },
+                    }}
                   >
-                    <SendIcon />
+                    <SendIcon sx={{ fontSize: 20 }} />
                   </IconButton>
                 </InputAdornment>
               ),
+              sx: { pr: 1 },
             }}
           />
         </Box>
@@ -218,7 +310,7 @@ export default function ChatPage() {
   );
 }
 
-/* ---------------- Message bubble ---------------- */
+// -------------------- Message Bubble --------------------
 
 type MessageBubbleProps = {
   message: Message;
@@ -232,10 +324,15 @@ function MessageBubble({ message, expandedId, setExpandedId }: MessageBubbleProp
   const matches = message.matches || [];
 
   return (
-    <Stack direction="row" spacing={2} justifyContent={isUser ? 'flex-end' : 'flex-start'}>
+    <Stack
+      direction="row"
+      spacing={2}
+      alignItems="flex-start"
+      justifyContent={isUser ? 'flex-end' : 'flex-start'}
+    >
       {!isUser && (
-        <Avatar sx={{ bgcolor: 'primary.main' }}>
-          <SchoolIcon />
+        <Avatar sx={{ width: 36, height: 36, bgcolor: 'primary.main' }}>
+          <SchoolIcon sx={{ fontSize: 20 }} />
         </Avatar>
       )}
 
@@ -245,38 +342,103 @@ function MessageBubble({ message, expandedId, setExpandedId }: MessageBubbleProp
             bgcolor: isUser ? 'primary.main' : alpha(theme.palette.grey[500], 0.08),
             color: isUser ? 'primary.contrastText' : 'text.primary',
             borderRadius: 2,
-            p: 2,
+            px: 2.5,
+            py: 1.5,
           }}
         >
-          <Typography variant="body2" whiteSpace="pre-wrap">
+          <Typography variant="caption" sx={{ display: 'block', mb: 0.5, opacity: 0.72, fontWeight: 600 }}>
+            {isUser ? 'You' : 'Assistant'}
+          </Typography>
+          <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>
             {message.content}
           </Typography>
         </Box>
 
         {!isUser && matches.length > 0 && (
-          <Box sx={{ mt: 1 }}>
+          <Box sx={{ mt: 1.5 }}>
             <Button
               size="small"
               onClick={() => setExpandedId(expandedId === message.id ? null : message.id)}
-              endIcon={expandedId === message.id ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+              endIcon={
+                expandedId === message.id ? (
+                  <ExpandLessIcon sx={{ fontSize: 18 }} />
+                ) : (
+                  <ExpandMoreIcon sx={{ fontSize: 18 }} />
+                )
+              }
+              sx={{
+                color: 'text.secondary',
+                fontWeight: 600,
+                fontSize: '0.75rem',
+                '&:hover': { bgcolor: alpha(theme.palette.grey[500], 0.08) },
+              }}
             >
-              {matches.length} sources
+              {matches.length} source{matches.length > 1 ? 's' : ''}
             </Button>
 
             <Collapse in={expandedId === message.id}>
-              <Stack spacing={1} sx={{ mt: 1 }}>
-                {matches.map((m, i) => (
-                  <Card key={i} variant="outlined">
-                    <CardContent>
-                      <Link href={m.url} target="_blank" fontWeight={700}>
-                        {m.professor} <OpenInNewIcon sx={{ fontSize: 14 }} />
-                      </Link>
+              <Stack spacing={1.5} sx={{ mt: 1.5 }}>
+                {matches.map((m, idx) => (
+                  <Card
+                    key={m.url + idx}
+                    variant="outlined"
+                    sx={{ borderColor: alpha(theme.palette.grey[500], 0.16), boxShadow: 'none' }}
+                  >
+                    <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
+                      <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={1}>
+                        <Stack direction="row" spacing={1.5} alignItems="center">
+                          <Avatar
+                            sx={{
+                              width: 32,
+                              height: 32,
+                              bgcolor: alpha(theme.palette.primary.main, 0.08),
+                              color: 'primary.main',
+                            }}
+                          >
+                            <PersonIcon sx={{ fontSize: 18 }} />
+                          </Avatar>
+                          <Link
+                            href={m.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            sx={{
+                              color: 'primary.main',
+                              fontWeight: 600,
+                              fontSize: '0.875rem',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 0.5,
+                              '&:hover': { color: 'primary.dark' },
+                            }}
+                          >
+                            {m.professor}
+                            <OpenInNewIcon sx={{ fontSize: 14 }} />
+                          </Link>
+                        </Stack>
+                        <Chip
+                          label={`${(m.score * 100).toFixed(0)}%`}
+                          size="small"
+                          sx={{
+                            height: 24,
+                            bgcolor: alpha(theme.palette.success.main, 0.08),
+                            color: 'success.dark',
+                            fontWeight: 700,
+                            fontSize: '0.7rem',
+                          }}
+                        />
+                      </Stack>
+
                       {m.chunkBlock && (
-                        <Typography variant="caption" display="block">
+                        <Typography
+                          variant="caption"
+                          color="text.secondary"
+                          sx={{ display: 'block', mt: 1, fontWeight: 700 }}
+                        >
                           {m.chunkBlock}
                         </Typography>
                       )}
-                      <Typography variant="caption" color="text.secondary">
+
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.75, lineHeight: 1.5 }}>
                         {m.snippet}
                       </Typography>
                     </CardContent>
@@ -289,8 +451,8 @@ function MessageBubble({ message, expandedId, setExpandedId }: MessageBubbleProp
       </Box>
 
       {isUser && (
-        <Avatar sx={{ bgcolor: 'secondary.main' }}>
-          <PersonIcon />
+        <Avatar sx={{ width: 36, height: 36, bgcolor: 'secondary.main' }}>
+          <PersonIcon sx={{ fontSize: 20 }} />
         </Avatar>
       )}
     </Stack>
