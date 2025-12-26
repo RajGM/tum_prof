@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, KeyboardEvent } from 'react';
+import { useState, KeyboardEvent, useMemo } from 'react';
 import {
   Box,
   Card,
@@ -16,7 +16,6 @@ import {
   Button,
   CircularProgress,
   InputAdornment,
-  Divider,
   alpha,
   useTheme,
 } from '@mui/material';
@@ -32,11 +31,12 @@ import {
 } from '@mui/icons-material';
 import { useColorMode } from './theme-provider';
 
-// Types
+// Types returned by API (matches updated route.ts)
 type Match = {
   score: number;
-  name: string;
+  professor: string;
   url: string;
+  chunkBlock: string;
   snippet: string;
 };
 
@@ -47,19 +47,19 @@ type Message = {
   matches?: Match[];
 };
 
-// Minimals-style scrollbar
+type ApiMessage = { role: 'user' | 'assistant'; content: string };
+
 const scrollbarStyles = {
-  '&::-webkit-scrollbar': {
-    width: '8px',
-  },
+  '&::-webkit-scrollbar': { width: '8px' },
   '&::-webkit-scrollbar-thumb': {
     backgroundColor: 'rgba(145, 158, 171, 0.48)',
     borderRadius: '4px',
   },
-  '&::-webkit-scrollbar-track': {
-    backgroundColor: 'transparent',
-  },
+  '&::-webkit-scrollbar-track': { backgroundColor: 'transparent' },
 };
+
+// Keep last N turns in request payload (server also slices, but do it here too)
+const MAX_MESSAGES_TO_SEND = 12;
 
 export default function ChatPage() {
   const theme = useTheme();
@@ -78,6 +78,13 @@ export default function ChatPage() {
   const [error, setError] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
+  // Build API chat history from UI messages (exclude welcome)
+  const apiHistory: ApiMessage[] = useMemo(() => {
+    return messages
+      .filter((m) => m.id !== 'welcome')
+      .map((m) => ({ role: m.role, content: m.content }));
+  }, [messages]);
+
   async function sendMessage() {
     const question = input.trim();
     if (!question || loading) return;
@@ -92,13 +99,19 @@ export default function ChatPage() {
       content: question,
     };
 
+    // Optimistic UI update
     setMessages((prev) => [...prev, userMsg]);
 
     try {
+      // Build messages payload including the new user question
+      const payloadMessages: ApiMessage[] = [...apiHistory, { role: 'user', content: question }].slice(
+        -MAX_MESSAGES_TO_SEND
+      );
+
       const res = await fetch('/api/prof-query', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question }),
+        body: JSON.stringify({ messages: payloadMessages }),
       });
 
       if (!res.ok) {
@@ -106,12 +119,13 @@ export default function ChatPage() {
         throw new Error(data.error || `Request failed with ${res.status}`);
       }
 
-      const data = await res.json();
+      const data: { answer?: string; matches?: Match[] } = await res.json();
+
       const assistantMsg: Message = {
         id: `assistant-${Date.now()}`,
         role: 'assistant',
         content: data.answer || 'No answer returned.',
-        matches: data.matches || [],
+        matches: Array.isArray(data.matches) ? data.matches : [],
       };
 
       setMessages((prev) => [...prev, assistantMsg]);
@@ -150,7 +164,10 @@ export default function ChatPage() {
           flexDirection: 'column',
           overflow: 'hidden',
           boxShadow: (theme) =>
-            `0 0 2px 0 ${alpha(theme.palette.grey[500], 0.2)}, 0 12px 24px -4px ${alpha(theme.palette.grey[500], 0.12)}`,
+            `0 0 2px 0 ${alpha(theme.palette.grey[500], 0.2)}, 0 12px 24px -4px ${alpha(
+              theme.palette.grey[500],
+              0.12
+            )}`,
         }}
       >
         {/* Header */}
@@ -189,9 +206,7 @@ export default function ChatPage() {
             onClick={toggleColorMode}
             sx={{
               bgcolor: alpha(theme.palette.grey[500], 0.08),
-              '&:hover': {
-                bgcolor: alpha(theme.palette.grey[500], 0.16),
-              },
+              '&:hover': { bgcolor: alpha(theme.palette.grey[500], 0.16) },
             }}
           >
             {mode === 'light' ? <DarkModeIcon /> : <LightModeIcon />}
@@ -199,14 +214,7 @@ export default function ChatPage() {
         </Box>
 
         {/* Messages Area */}
-        <Box
-          sx={{
-            flex: 1,
-            overflowY: 'auto',
-            p: 3,
-            ...scrollbarStyles,
-          }}
-        >
+        <Box sx={{ flex: 1, overflowY: 'auto', p: 3, ...scrollbarStyles }}>
           <Stack spacing={3}>
             {messages.map((m) => (
               <MessageBubble
@@ -216,6 +224,7 @@ export default function ChatPage() {
                 setExpandedId={setExpandedId}
               />
             ))}
+
             {loading && (
               <Stack direction="row" spacing={2} alignItems="flex-start">
                 <Avatar
@@ -268,14 +277,7 @@ export default function ChatPage() {
         )}
 
         {/* Input Area */}
-        <Box
-          sx={{
-            p: 3,
-            pt: 2,
-            borderTop: '1px dashed',
-            borderColor: 'divider',
-          }}
-        >
+        <Box sx={{ p: 3, pt: 2, borderTop: '1px dashed', borderColor: 'divider' }}>
           <TextField
             fullWidth
             placeholder='Ask something like: "Who works on quantum computing?"'
@@ -292,9 +294,7 @@ export default function ChatPage() {
                     sx={{
                       bgcolor: 'primary.main',
                       color: 'primary.contrastText',
-                      '&:hover': {
-                        bgcolor: 'primary.dark',
-                      },
+                      '&:hover': { bgcolor: 'primary.dark' },
                       '&.Mui-disabled': {
                         bgcolor: alpha(theme.palette.grey[500], 0.24),
                         color: alpha(theme.palette.grey[500], 0.8),
@@ -305,9 +305,7 @@ export default function ChatPage() {
                   </IconButton>
                 </InputAdornment>
               ),
-              sx: {
-                pr: 1,
-              },
+              sx: { pr: 1 },
             }}
           />
         </Box>
@@ -316,7 +314,6 @@ export default function ChatPage() {
   );
 }
 
-// Message Bubble Component
 type MessageBubbleProps = {
   message: Message;
   expandedId: string | null;
@@ -351,9 +348,7 @@ function MessageBubble({ message, expandedId, setExpandedId }: MessageBubbleProp
       <Box sx={{ maxWidth: '75%' }}>
         <Box
           sx={{
-            bgcolor: isUser
-              ? 'primary.main'
-              : alpha(theme.palette.grey[500], 0.08),
+            bgcolor: isUser ? 'primary.main' : alpha(theme.palette.grey[500], 0.08),
             color: isUser ? 'primary.contrastText' : 'text.primary',
             borderRadius: 2,
             px: 2.5,
@@ -362,22 +357,11 @@ function MessageBubble({ message, expandedId, setExpandedId }: MessageBubbleProp
         >
           <Typography
             variant="caption"
-            sx={{
-              display: 'block',
-              mb: 0.5,
-              opacity: 0.72,
-              fontWeight: 600,
-            }}
+            sx={{ display: 'block', mb: 0.5, opacity: 0.72, fontWeight: 600 }}
           >
             {isUser ? 'You' : 'Assistant'}
           </Typography>
-          <Typography
-            variant="body2"
-            sx={{
-              whiteSpace: 'pre-wrap',
-              lineHeight: 1.6,
-            }}
-          >
+          <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>
             {message.content}
           </Typography>
         </Box>
@@ -387,9 +371,7 @@ function MessageBubble({ message, expandedId, setExpandedId }: MessageBubbleProp
           <Box sx={{ mt: 1.5 }}>
             <Button
               size="small"
-              onClick={() =>
-                setExpandedId(expandedId === message.id ? null : message.id)
-              }
+              onClick={() => setExpandedId(expandedId === message.id ? null : message.id)}
               endIcon={
                 expandedId === message.id ? (
                   <ExpandLessIcon sx={{ fontSize: 18 }} />
@@ -401,9 +383,7 @@ function MessageBubble({ message, expandedId, setExpandedId }: MessageBubbleProp
                 color: 'text.secondary',
                 fontWeight: 600,
                 fontSize: '0.75rem',
-                '&:hover': {
-                  bgcolor: alpha(theme.palette.grey[500], 0.08),
-                },
+                '&:hover': { bgcolor: alpha(theme.palette.grey[500], 0.08) },
               }}
             >
               {matches.length} source{matches.length > 1 ? 's' : ''}
@@ -438,6 +418,7 @@ function MessageBubble({ message, expandedId, setExpandedId }: MessageBubbleProp
                           >
                             <PersonIcon sx={{ fontSize: 18 }} />
                           </Avatar>
+
                           <Link
                             href={m.url}
                             target="_blank"
@@ -449,15 +430,14 @@ function MessageBubble({ message, expandedId, setExpandedId }: MessageBubbleProp
                               display: 'flex',
                               alignItems: 'center',
                               gap: 0.5,
-                              '&:hover': {
-                                color: 'primary.dark',
-                              },
+                              '&:hover': { color: 'primary.dark' },
                             }}
                           >
-                            {m.name}
+                            {m.professor}
                             <OpenInNewIcon sx={{ fontSize: 14 }} />
                           </Link>
                         </Stack>
+
                         <Chip
                           label={`${(m.score * 100).toFixed(0)}%`}
                           size="small"
@@ -470,14 +450,21 @@ function MessageBubble({ message, expandedId, setExpandedId }: MessageBubbleProp
                           }}
                         />
                       </Stack>
+
+                      {m.chunkBlock && (
+                        <Typography
+                          variant="caption"
+                          sx={{ display: 'block', mt: 1, fontWeight: 700 }}
+                          color="text.secondary"
+                        >
+                          {m.chunkBlock}
+                        </Typography>
+                      )}
+
                       <Typography
                         variant="caption"
                         color="text.secondary"
-                        sx={{
-                          display: 'block',
-                          mt: 1,
-                          lineHeight: 1.5,
-                        }}
+                        sx={{ display: 'block', mt: 0.75, lineHeight: 1.5 }}
                       >
                         {m.snippet}
                       </Typography>
